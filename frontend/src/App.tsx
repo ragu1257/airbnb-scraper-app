@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 
 interface Listing {
   title: string;
@@ -29,6 +29,12 @@ const App: React.FC = () => {
       setLoading(false);
     }
   };
+
+  // Fetch data on page load
+  useEffect(() => {
+    fetchData();
+  }, []);
+
 
   return (
     <div style={{ padding: '20px', fontFamily: 'Arial, sans-serif' }}>
