@@ -1,9 +1,10 @@
 const express = require("express");
 const puppeteer = require("puppeteer");
 const cors = require("cors");
+require("dotenv").config(); // For environment variable management
 
 const app = express();
-const PORT = 3001;
+const PORT = process.env.PORT || 3000; // Use environment variable for flexibility
 
 app.use(cors());
 
@@ -11,7 +12,7 @@ async function scrapeHomePage(url = "https://www.airbnb.com/") {
   let browser;
 
   try {
-    // Launch puppeteer browser in headless mode (reuse browser instance)
+    // Launch Puppeteer browser in headless mode (reuse browser instance)
     browser = await puppeteer.launch({ headless: true });
 
     // Create a new page in the browser
@@ -22,13 +23,26 @@ async function scrapeHomePage(url = "https://www.airbnb.com/") {
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/89.0.4389.82 Safari/537.36"
     );
 
-    // Navigate to the provided URL and wait until the network is idle
-    await page.goto(url, { waitUntil: "networkidle2" });
+    // Navigate to the provided URL with a timeout of 30 seconds
+    try {
+      await page.goto(url, {
+        waitUntil: "networkidle2",
+        timeout: 30000, // Timeout after 30 seconds
+      });
+    } catch (gotoError) {
+      console.error("Navigation Timeout Error:", gotoError);
+      throw new Error(`Failed to navigate to the page: ${gotoError.message}`);
+    }
 
-    // Wait for the itemListElement to be available
-    await page.waitForSelector("[itemprop='itemListElement']", {
-      timeout: 10000,
-    });
+    // Wait for the itemListElement to be available with a 10-second timeout
+    try {
+      await page.waitForSelector("[itemprop='itemListElement']", {
+        timeout: 10000, // Timeout after 10 seconds
+      });
+    } catch (timeoutError) {
+      console.error("Timeout error:", timeoutError);
+      throw new Error("Element not found in time.");
+    }
 
     // Extract data using page.evaluate() for direct interaction with DOM
     const itemListElementContents = await page.evaluate(() => {
@@ -54,30 +68,20 @@ async function scrapeHomePage(url = "https://www.airbnb.com/") {
           : "N/A";
 
         const regex = /([^\w\s]\s?\d+(?:,\d{3})*(?:\.\d{1,2})?)\s*per\s+night/i;
-
-        const price = el.textContent.match(regex)[1];
-
-        // const price = el.querySelector(
-        //   "div > div > div > div > div:nth-child(2) > div:nth-child(4) > div:nth-child(2) > div > div > span > div > span"
-        // )
-        //   ? el
-        //       .querySelector(
-        //         "div > div > div > div > div:nth-child(2) > div:nth-child(4) > div:nth-child(2) > div > div > span > div > span"
-        //       )
-        //       .textContent.trim()
-        //   : "N/A";
+        const priceMatch = el.textContent.match(regex);
+        const price = priceMatch ? priceMatch[1] : "N/A"; // Safeguard for missing price
 
         result.push({ link, title, price });
       });
 
       return result;
     });
-    console.log(itemListElementContents);
 
+    console.log(itemListElementContents);
     return itemListElementContents;
   } catch (err) {
-    console.error("Error:", err.message);
-    return [];
+    console.error("Error scraping page:", err);
+    throw new Error("Failed to scrape the page");
   } finally {
     // Ensure the browser is closed even if an error occurs
     if (browser) {
@@ -86,15 +90,17 @@ async function scrapeHomePage(url = "https://www.airbnb.com/") {
   }
 }
 
-// // Trigger the scraping for the fixed Airbnb URL
-// scrapeHomePage("https://www.airbnb.com/").then(data => {
-//   console.log(data);
-// });
-
 // Route to trigger the scraping for a given URL
 app.get("/scrape", async (req, res) => {
-  const data = await scrapeHomePage();
-  res.json(data);
+  const { url } = req.query;
+  const targetUrl = url || "https://www.airbnb.com/"; // Default to Airbnb if no URL is provided
+
+  try {
+    const data = await scrapeHomePage(targetUrl);
+    res.json({ success: true, data });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 // Start server
